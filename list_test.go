@@ -7,14 +7,14 @@ import (
 
 func TestAggregatorList(t *testing.T) {
 	aggrList := NewAggregatorList(
-		NewAggregator(func(k []string, a ...any) (map[string]string, error) {
+		NewAggregator(func(k []string) (map[string]string, error) {
 			return map[string]string{
 				"key1": "val1",
 				"key2": "val2",
 				"key3": "val3",
 			}, nil
 		}, 10*time.Millisecond, 10, 1),
-		NewAggregator(func(k []string, a ...any) (map[string]string, error) {
+		NewAggregator(func(k []string) (map[string]string, error) {
 			return map[string]string{
 				"key1": "val1",
 				"key2": "val2",
@@ -22,7 +22,7 @@ func TestAggregatorList(t *testing.T) {
 				"key4": "val4",
 			}, nil
 		}, 100*time.Millisecond, 10, 1),
-		NewAggregator(func(k []string, a ...any) (map[string]string, error) {
+		NewAggregator(func(k []string) (map[string]string, error) {
 			return map[string]string{
 				"key4": "val4",
 				"key5": "val5",

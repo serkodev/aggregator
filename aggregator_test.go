@@ -61,10 +61,10 @@ func TestAggregatorAsync(t *testing.T) {
 
 	max := 3
 	_, progress := simpleProgress(0, max)
-	a := NewAggregator(func(ids []string, args ...any) (map[string]string, error) {
+	a := NewAggregator(func(ids []string) (map[string]string, error) {
 		sort.Strings(ids)
 		assertEqual(t, reflect.DeepEqual(ids, []string{"key1", "key2", "key3"}), true)
-		return progress(ids, args)
+		return progress(ids)
 	}, 100*time.Millisecond, 100, 1)
 
 	var w sync.WaitGroup
@@ -155,7 +155,7 @@ func canTestConcurrent(concurrent int) bool {
 	return runtime.GOMAXPROCS(0) >= concurrent && runtime.NumCPU() >= concurrent
 }
 
-func simpleProgress(fakeDuration time.Duration, dbItemsCount int) (sync.Map, func(ids []string, args ...any) (map[string]string, error)) {
+func simpleProgress(fakeDuration time.Duration, dbItemsCount int) (sync.Map, func(ids []string) (map[string]string, error)) {
 	// generate sample db
 	var db sync.Map
 	for i := 1; i <= dbItemsCount; i++ {
@@ -163,7 +163,7 @@ func simpleProgress(fakeDuration time.Duration, dbItemsCount int) (sync.Map, fun
 	}
 
 	// generate progress
-	progress := func(ids []string, args ...any) (map[string]string, error) {
+	progress := func(ids []string) (map[string]string, error) {
 		if fakeDuration > 0 {
 			time.Sleep(fakeDuration)
 		}
