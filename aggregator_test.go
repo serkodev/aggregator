@@ -27,7 +27,7 @@ func TestAggregatorSync(t *testing.T) {
 	t.Parallel()
 
 	db, progress := simpleProgress(0, 2)
-	a := NewAggregator(progress, 10*time.Second, 1, 1)
+	a := NewAggregator(progress, 10*time.Second, 1).Run()
 
 	// test sync query
 	assertEqual(t, a.QueryValue("key1"), "val1")
@@ -72,7 +72,7 @@ func TestAggregatorAsync(t *testing.T) {
 		sort.Strings(ids)
 		assertEqual(t, reflect.DeepEqual(ids, []string{"key1", "key2", "key3"}), true)
 		return progress(ids)
-	}, 100*time.Millisecond, 100, 1)
+	}, 100*time.Millisecond, 100).Run()
 
 	var w sync.WaitGroup
 	w.Add(max)
@@ -113,7 +113,7 @@ func TestAggregatorWorker(t *testing.T) {
 	t.Run("1 worker", func(t *testing.T) {
 		t.Parallel()
 
-		a := NewAggregator(progress, 10*time.Second, 1, 1)
+		a := NewAggregator(progress, 10*time.Second, 1).Run()
 		runTest(t, a, map[string]time.Duration{
 			"key1": processTime,
 			"key2": processTime * 2,
@@ -126,7 +126,9 @@ func TestAggregatorWorker(t *testing.T) {
 		t.Run("2 workers", func(t *testing.T) {
 			t.Parallel()
 
-			a := NewAggregator(progress, 10*time.Second, 1, 2)
+			a := NewAggregator(progress, 10*time.Second, 1)
+			a.WorkerSize = 2
+			a.Run()
 			runTest(t, a, map[string]time.Duration{
 				"key1": processTime,
 				"key2": processTime + delayTime,
@@ -142,7 +144,9 @@ func TestAggregatorWorker(t *testing.T) {
 		t.Run("4 workers", func(t *testing.T) {
 			t.Parallel()
 
-			a := NewAggregator(progress, 10*time.Second, 1, 4)
+			a := NewAggregator(progress, 10*time.Second, 1)
+			a.WorkerSize = 4
+			a.Run()
 			runTest(t, a, map[string]time.Duration{
 				"key1": processTime,
 				"key2": processTime + delayTime,
@@ -160,7 +164,7 @@ func TestAggregatorUnlimitWait(t *testing.T) {
 
 	max := 2
 	_, progress := simpleProgress(0, max)
-	a := NewAggregator(progress, -1*time.Millisecond, 2, 1)
+	a := NewAggregator(progress, -1*time.Millisecond, 2).Run()
 
 	var w sync.WaitGroup
 	w.Add(max)
@@ -179,7 +183,7 @@ func TestAggregatorUnlimitMax(t *testing.T) {
 	// TODO: fix unlimit max
 	max := 2
 	_, progress := simpleProgress(0, max)
-	a := NewAggregator(progress, 3000*time.Second, 0, 1)
+	a := NewAggregator(progress, 3000*time.Second, 0).Run()
 
 	var w sync.WaitGroup
 	w.Add(max)

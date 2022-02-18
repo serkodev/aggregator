@@ -1,13 +1,19 @@
 package aggregator
 
 import (
-	"fmt"
 	"sync"
 )
 
 type AggregatorList[K comparable, T any] []*Aggregator[K, T]
 
 func NewAggregatorList[K comparable, T any](aggregators ...*Aggregator[K, T]) AggregatorList[K, T] {
+	return aggregators
+}
+
+func (aggregators AggregatorList[K, T]) Run() AggregatorList[K, T] {
+	for _, a := range aggregators {
+		a.Run()
+	}
 	return aggregators
 }
 
@@ -18,7 +24,6 @@ func (aggregators AggregatorList[K, T]) Query(key K) Result[T] {
 			if i == len(aggregators)-1 {
 				return result
 			}
-			fmt.Println("fallback next")
 			continue
 		}
 		return result
