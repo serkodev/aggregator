@@ -6,21 +6,20 @@ import (
 )
 
 type Aggregator[K comparable, T any] struct {
-	Processor    func([]K, ...any) (map[K]T, error)
+	Processor    func([]K) (map[K]T, error)
 	Timeout      time.Duration
 	MaxQueryOnce int
-	Args         []any
 
-	flushChan chan map[K][]chan Result[T]
-	notify    chan notifyObject[K, T]
+	flushChan  chan map[K][]chan Result[T]
+	notifyChan chan notifyObject[K, T]
 }
 
 type notifyObject[K comparable, T any] struct {
-	id K
-	ch chan Result[T]
+	key K
+	ch  chan Result[T]
 }
 
-func NewAggregator[K comparable, T any](processor func([]K, ...any) (map[K]T, error), timeout time.Duration, maxQueryOnce int, workerSize int) *Aggregator[K, T] {
+func NewAggregator[K comparable, T any](processor func([]K) (map[K]T, error), timeout time.Duration, maxQueryOnce int, workerSize int) *Aggregator[K, T] {
 	if workerSize < 1 {
 		workerSize = 1
 	}
@@ -30,8 +29,8 @@ func NewAggregator[K comparable, T any](processor func([]K, ...any) (map[K]T, er
 		Timeout:      timeout,
 		MaxQueryOnce: maxQueryOnce,
 
-		flushChan: make(chan map[K][]chan Result[T], workerSize),
-		notify:    make(chan notifyObject[K, T]),
+		flushChan:  make(chan map[K][]chan Result[T], workerSize),
+		notifyChan: make(chan notifyObject[K, T]),
 	}
 
 	// start flush workers
@@ -49,13 +48,12 @@ func (a *Aggregator[K, T]) run() {
 	t := time.NewTimer(a.Timeout)
 	for {
 		// wait first notification
-		data := <-a.notify
+		data := <-a.notifyChan
 
 		fetchList := map[K][]chan Result[T]{
-			data.id: {data.ch},
+			data.key: {data.ch},
 		}
 
-		// timer, see: https://kknews.cc/zh-hk/news/rlp9ypn.html
 		if !t.Stop() && len(t.C) > 0 {
 			<-t.C
 		}
@@ -63,13 +61,13 @@ func (a *Aggregator[K, T]) run() {
 		if a.MaxQueryOnce > 1 {
 			t.Reset(a.Timeout)
 
-			println("[start] in:", data.id, "waiting...")
+			println("[start] in:", data.key, "waiting...")
 			// wait other notification
 		wait:
 			for {
 				select {
-				case data := <-a.notify:
-					fetchList[data.id] = append(fetchList[data.id], data.ch)
+				case data := <-a.notifyChan:
+					fetchList[data.key] = append(fetchList[data.key], data.ch)
 					if len(fetchList) >= a.MaxQueryOnce {
 						// reach max query
 						break wait
@@ -95,7 +93,7 @@ func (a *Aggregator[K, T]) flushWorker(fetchChan <-chan map[K][]chan Result[T]) 
 		}
 
 		// execute processor
-		results, err := a.Processor(keys, a.Args...)
+		results, err := a.Processor(keys)
 
 		// return results
 		for i, queue := range fetchList {
@@ -121,12 +119,12 @@ func (a *Aggregator[K, T]) flushWorker(fetchChan <-chan map[K][]chan Result[T]) 
 }
 
 func (a *Aggregator[K, T]) QueryChan(key K) <-chan Result[T] {
-	c := make(chan Result[T], 1)
-	a.notify <- notifyObject[K, T]{
-		id: key,
-		ch: c,
+	ch := make(chan Result[T], 1)
+	a.notifyChan <- notifyObject[K, T]{
+		key: key,
+		ch:  ch,
 	}
-	return c
+	return ch
 }
 
 func (a *Aggregator[K, T]) Query(key K) Result[T] {
