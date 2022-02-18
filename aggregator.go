@@ -2,7 +2,6 @@ package aggregator
 
 import (
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
@@ -12,8 +11,8 @@ type Aggregator[K comparable, T any] struct {
 	MaxQueryOnce int
 	Args         []any
 
-	notify  chan notifyObject[K, T]
-	running int32
+	flushChan chan map[K][]chan Result[T]
+	notify    chan notifyObject[K, T]
 }
 
 type notifyObject[K comparable, T any] struct {
@@ -21,24 +20,32 @@ type notifyObject[K comparable, T any] struct {
 	ch chan Result[T]
 }
 
-func NewAggregator[K comparable, T any](processor func([]K, ...any) (map[K]T, error), timeout time.Duration, maxQueryOnce int) *Aggregator[K, T] {
-	return &Aggregator[K, T]{
+func NewAggregator[K comparable, T any](processor func([]K, ...any) (map[K]T, error), timeout time.Duration, maxQueryOnce int, workerSize int) *Aggregator[K, T] {
+	if workerSize < 1 {
+		workerSize = 1
+	}
+
+	a := &Aggregator[K, T]{
 		Processor:    processor,
 		Timeout:      timeout,
 		MaxQueryOnce: maxQueryOnce,
 
-		notify: make(chan notifyObject[K, T]),
+		flushChan: make(chan map[K][]chan Result[T], workerSize),
+		notify:    make(chan notifyObject[K, T]),
 	}
+
+	// start flush workers
+	for i := 0; i < workerSize; i++ {
+		go a.flushWorker(a.flushChan)
+	}
+
+	// start aggregator
+	go a.run()
+
+	return a
 }
 
-func (a *Aggregator[K, T]) Run() {
-	if atomic.CompareAndSwapInt32(&a.running, 0, 1) {
-		println("run!")
-		go a.process()
-	}
-}
-
-func (a *Aggregator[K, T]) process() {
+func (a *Aggregator[K, T]) run() {
 	t := time.NewTimer(a.Timeout)
 	for {
 		// wait first notification
@@ -72,6 +79,12 @@ func (a *Aggregator[K, T]) process() {
 			}
 		}
 
+		a.flushChan <- fetchList
+	}
+}
+
+func (a *Aggregator[K, T]) flushWorker(fetchChan <-chan map[K][]chan Result[T]) {
+	for fetchList := range fetchChan {
 		keys := make([]K, len(fetchList))
 		i := 0
 		for k := range fetchList {

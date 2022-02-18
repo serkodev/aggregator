@@ -11,12 +11,6 @@ func NewAggregatorList[K comparable, T any](aggregators ...*Aggregator[K, T]) Ag
 	return aggregators
 }
 
-func (aggregators AggregatorList[K, T]) Run() {
-	for _, a := range aggregators {
-		a.Run()
-	}
-}
-
 func (aggregators AggregatorList[K, T]) Query(key K) Result[T] {
 	for i, a := range aggregators {
 		result := a.Query(key)
