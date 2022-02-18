@@ -59,23 +59,25 @@ func (a *Aggregator[K, T]) run() {
 		if !t.Stop() && len(t.C) > 0 {
 			<-t.C
 		}
-		t.Reset(a.Timeout)
 
-		println("[start] in:", data.id, "waiting...")
+		if a.MaxQueryOnce > 1 {
+			t.Reset(a.Timeout)
 
-		// wait other notification
-	wait:
-		for {
-			select {
-			case data := <-a.notify:
-				fetchList[data.id] = append(fetchList[data.id], data.ch)
-				if len(fetchList) >= a.MaxQueryOnce {
-					// reach max query
+			println("[start] in:", data.id, "waiting...")
+			// wait other notification
+		wait:
+			for {
+				select {
+				case data := <-a.notify:
+					fetchList[data.id] = append(fetchList[data.id], data.ch)
+					if len(fetchList) >= a.MaxQueryOnce {
+						// reach max query
+						break wait
+					}
+				case <-t.C:
+					// timeout
 					break wait
 				}
-			case <-t.C:
-				// timeout
-				break wait
 			}
 		}
 
