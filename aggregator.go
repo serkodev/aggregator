@@ -9,11 +9,11 @@ import (
 )
 
 type Aggregator[K comparable, T any] struct {
-	Processor     func([]K) (map[K]T, error)
 	FlushTimeout  time.Duration
 	FlushMaxQuery int
-	WorkerSize    int
 
+	processor  func([]K) (map[K]T, error)
+	workers    int
 	flushChan  chan map[K][]chan Result[T]
 	notifyChan chan notifyObject[K, T]
 	debugPrint func(format string, v ...interface{})
@@ -25,27 +25,35 @@ type notifyObject[K comparable, T any] struct {
 	ch  chan Result[T]
 }
 
+var NeverFlushTimeout time.Duration = -1
+
 // flushMaxQuery: 0 unlimit
 // flushTimeout: only wait max query once if < 0
 func NewAggregator[K comparable, T any](processor func([]K) (map[K]T, error), flushTimeout time.Duration, flushMaxQuery int) *Aggregator[K, T] {
 	a := &Aggregator[K, T]{
-		Processor:     processor,
 		FlushTimeout:  flushTimeout,
 		FlushMaxQuery: flushMaxQuery,
-		WorkerSize:    1,
 
+		processor:  processor,
+		workers:    1,
 		notifyChan: make(chan notifyObject[K, T]),
 		debugPrint: func(format string, v ...interface{}) {},
 	}
 	return a
 }
 
-func (a *Aggregator[K, T]) Debug(debug bool) {
+func (a *Aggregator[K, T]) Debug(debug bool) *Aggregator[K, T] {
 	if debug {
 		a.debugPrint = log.New(os.Stdout, fmt.Sprintf("[aggregator]"), 0).Printf
 	} else {
 		a.debugPrint = func(format string, v ...interface{}) {}
 	}
+	return a
+}
+
+func (a *Aggregator[K, T]) Workers(workers int) *Aggregator[K, T] {
+	a.workers = workers
+	return a
 }
 
 func (a *Aggregator[K, T]) Run() *Aggregator[K, T] {
@@ -56,12 +64,12 @@ func (a *Aggregator[K, T]) Run() *Aggregator[K, T] {
 }
 
 func (a *Aggregator[K, T]) run() {
-	// flush workers
-	if a.WorkerSize < 1 {
-		a.WorkerSize = 1
+	// workers
+	if a.workers < 1 {
+		a.workers = 1
 	}
-	a.flushChan = make(chan map[K][]chan Result[T], a.WorkerSize)
-	for i := 0; i < a.WorkerSize; i++ {
+	a.flushChan = make(chan map[K][]chan Result[T], a.workers)
+	for i := 0; i < a.workers; i++ {
 		go a.flushWorker(a.flushChan)
 	}
 
@@ -80,8 +88,10 @@ func (a *Aggregator[K, T]) run() {
 			<-t.C
 		}
 
-		if a.FlushMaxQuery > 1 { // TODO: a.MaxQueryOnce 0
-			t.Reset(a.FlushTimeout)
+		if a.FlushMaxQuery != 1 {
+			if a.FlushTimeout != NeverFlushTimeout {
+				t.Reset(a.FlushTimeout)
+			}
 
 			// wait other notification
 		wait:
@@ -115,7 +125,7 @@ func (a *Aggregator[K, T]) flushWorker(fetchChan <-chan map[K][]chan Result[T]) 
 		}
 
 		// execute processor
-		results, err := a.Processor(keys)
+		results, err := a.processor(keys)
 
 		// return results
 		for i, queue := range fetchList {

@@ -126,8 +126,7 @@ func TestAggregatorWorker(t *testing.T) {
 		t.Run("2 workers", func(t *testing.T) {
 			t.Parallel()
 
-			a := NewAggregator(progress, 10*time.Second, 1)
-			a.WorkerSize = 2
+			a := NewAggregator(progress, 10*time.Second, 1).Workers(2)
 			a.Run()
 			runTest(t, a, map[string]time.Duration{
 				"key1": processTime,
@@ -144,8 +143,7 @@ func TestAggregatorWorker(t *testing.T) {
 		t.Run("4 workers", func(t *testing.T) {
 			t.Parallel()
 
-			a := NewAggregator(progress, 10*time.Second, 1)
-			a.WorkerSize = 4
+			a := NewAggregator(progress, 10*time.Second, 1).Workers(4)
 			a.Run()
 			runTest(t, a, map[string]time.Duration{
 				"key1": processTime,
@@ -160,37 +158,66 @@ func TestAggregatorWorker(t *testing.T) {
 }
 
 func TestAggregatorUnlimitWait(t *testing.T) {
-	t.Parallel()
+	t.Run("wait forever, never reach max query", func(t *testing.T) {
+		t.Parallel()
+		max := 2
+		_, progress := simpleProgress(0, max)
+		a := NewAggregator(progress, -1, 3).Run()
+		var w sync.WaitGroup
+		w.Add(max)
+		for i := 1; i <= max; i++ {
+			go func(idx int) {
+				defer w.Done()
+				select {
+				case <-a.QueryChan(fmt.Sprintf("key%d", idx)):
+					t.Error("expect not return value")
+				case <-time.After(100 * time.Millisecond):
+					break
+				}
+			}(i)
+		}
+		w.Wait()
+	})
 
-	max := 2
-	_, progress := simpleProgress(0, max)
-	a := NewAggregator(progress, -1*time.Millisecond, 2).Run()
-
-	var w sync.WaitGroup
-	w.Add(max)
-	for i := 1; i <= max; i++ {
-		go func(idx int) {
-			defer w.Done()
-			assertEqual(t, a.QueryValue(fmt.Sprintf("key%d", idx)), fmt.Sprintf("val%d", idx))
-		}(i)
-	}
-	w.Wait()
+	t.Run("wait forever, reach max query", func(t *testing.T) {
+		t.Parallel()
+		max := 2
+		_, progress := simpleProgress(0, max)
+		a := NewAggregator(progress, -1, 2).Run()
+		var w sync.WaitGroup
+		w.Add(max)
+		for i := 1; i <= max; i++ {
+			go func(idx int) {
+				defer w.Done()
+				select {
+				case v := <-a.QueryChan(fmt.Sprintf("key%d", idx)):
+					assertEqual(t, v.Value, fmt.Sprintf("val%d", idx))
+					break
+				case <-time.After(100 * time.Millisecond):
+					t.Error("expect flush by max query")
+				}
+			}(i)
+		}
+		w.Wait()
+	})
 }
 
 func TestAggregatorUnlimitMax(t *testing.T) {
 	t.Parallel()
 
-	// TODO: fix unlimit max
-	max := 2
+	max := 10
+	flushTimeout := 500 * time.Millisecond
 	_, progress := simpleProgress(0, max)
-	a := NewAggregator(progress, 3000*time.Second, 0).Run()
+	a := NewAggregator(progress, flushTimeout, 0).Run()
 
 	var w sync.WaitGroup
 	w.Add(max)
+	now := time.Now()
 	for i := 1; i <= max; i++ {
 		go func(idx int) {
 			defer w.Done()
 			assertEqual(t, a.QueryValue(fmt.Sprintf("key%d", idx)), fmt.Sprintf("val%d", idx))
+			assertExpectedDuration(t, time.Since(now), flushTimeout)
 		}(i)
 	}
 	w.Wait()
