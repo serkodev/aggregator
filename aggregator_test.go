@@ -16,6 +16,13 @@ func assertEqual[T comparable](t *testing.T, a T, b T) {
 	}
 }
 
+func assertExpectedDuration(t *testing.T, duration time.Duration, expectDuration time.Duration) {
+	tolerance := 10 * time.Millisecond
+	if diff := duration - expectDuration; diff < 0 || diff > tolerance {
+		t.Error("unexpected running duration (ms):", duration.Milliseconds(), "expected:", expectDuration.Milliseconds())
+	}
+}
+
 func TestAggregatorSync(t *testing.T) {
 	t.Parallel()
 
@@ -81,7 +88,7 @@ func TestAggregatorAsync(t *testing.T) {
 func TestAggregatorWorker(t *testing.T) {
 	processTime := 90 * time.Millisecond
 	delayTime := 33 * time.Millisecond
-	tolerance := 10 * time.Millisecond
+
 	runTest := func(t *testing.T, a *Aggregator[string, string], expectDurations map[string]time.Duration) {
 		var w sync.WaitGroup
 		w.Add(4)
@@ -93,10 +100,7 @@ func TestAggregatorWorker(t *testing.T) {
 				assertEqual(t, a.QueryValue(key), fmt.Sprintf("val%d", idx))
 
 				expectDuration := expectDurations[key]
-				rt := time.Since(now)
-				if diff := rt - expectDuration; diff < 0 || diff > tolerance {
-					t.Error("idx", idx, "unexpected running duration (ms):", rt.Milliseconds(), "expected:", expectDuration.Milliseconds())
-				}
+				assertExpectedDuration(t, time.Since(now), expectDuration)
 			}(i)
 			time.Sleep(delayTime)
 		}
@@ -149,6 +153,43 @@ func TestAggregatorWorker(t *testing.T) {
 	} else {
 		t.Log("not enough procs to test 4 workers")
 	}
+}
+
+func TestAggregatorUnlimitWait(t *testing.T) {
+	t.Parallel()
+
+	max := 2
+	_, progress := simpleProgress(0, max)
+	a := NewAggregator(progress, -1*time.Millisecond, 2, 1)
+
+	var w sync.WaitGroup
+	w.Add(max)
+	for i := 1; i <= max; i++ {
+		go func(idx int) {
+			defer w.Done()
+			assertEqual(t, a.QueryValue(fmt.Sprintf("key%d", idx)), fmt.Sprintf("val%d", idx))
+		}(i)
+	}
+	w.Wait()
+}
+
+func TestAggregatorUnlimitMax(t *testing.T) {
+	t.Parallel()
+
+	// TODO: fix unlimit max
+	max := 2
+	_, progress := simpleProgress(0, max)
+	a := NewAggregator(progress, 3000*time.Second, 0, 1)
+
+	var w sync.WaitGroup
+	w.Add(max)
+	for i := 1; i <= max; i++ {
+		go func(idx int) {
+			defer w.Done()
+			assertEqual(t, a.QueryValue(fmt.Sprintf("key%d", idx)), fmt.Sprintf("val%d", idx))
+		}(i)
+	}
+	w.Wait()
 }
 
 func canTestConcurrent(concurrent int) bool {

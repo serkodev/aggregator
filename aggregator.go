@@ -19,6 +19,8 @@ type notifyObject[K comparable, T any] struct {
 	ch  chan Result[T]
 }
 
+// maxQueryOnce: 0 unlimit
+// timeout: only wait max query once if < 0
 func NewAggregator[K comparable, T any](processor func([]K) (map[K]T, error), timeout time.Duration, maxQueryOnce int, workerSize int) *Aggregator[K, T] {
 	if workerSize < 1 {
 		workerSize = 1
@@ -49,30 +51,32 @@ func (a *Aggregator[K, T]) run() {
 	for {
 		// wait first notification
 		data := <-a.notifyChan
-
 		fetchList := map[K][]chan Result[T]{
 			data.key: {data.ch},
 		}
 
+		// clear timer
 		if !t.Stop() && len(t.C) > 0 {
 			<-t.C
 		}
 
-		if a.MaxQueryOnce > 1 {
+		if a.MaxQueryOnce > 1 { // TODO: a.MaxQueryOnce 0
 			t.Reset(a.Timeout)
 
-			println("[start] in:", data.key, "waiting...")
 			// wait other notification
 		wait:
 			for {
 				select {
 				case data := <-a.notifyChan:
+					println("data in")
 					fetchList[data.key] = append(fetchList[data.key], data.ch)
-					if len(fetchList) >= a.MaxQueryOnce {
+					if a.MaxQueryOnce > 0 && len(fetchList) >= a.MaxQueryOnce {
+						println("max query flush")
 						// reach max query
 						break wait
 					}
 				case <-t.C:
+					println("timeout flush")
 					// timeout
 					break wait
 				}
