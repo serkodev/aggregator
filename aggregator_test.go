@@ -20,16 +20,40 @@ func TestAggregatorSync(t *testing.T) {
 	t.Parallel()
 
 	db, progress := simpleProgress(0, 2)
-	a := NewAggregator(progress, 100*time.Millisecond, 100, 1)
+	a := NewAggregator(progress, 10*time.Second, 1, 1)
 
 	// test sync query
 	assertEqual(t, a.QueryValue("key1"), "val1")
 	assertEqual(t, a.QueryValue("key2"), "val2")
 	assertEqual(t, a.Query("key3").Error, ErrNoResult)
 
-	// test insert data
+	// insert data
 	db.Store("key3", "val3")
 	assertEqual(t, a.QueryValue("key3"), "val3")
+
+	// Query
+	assertEqual(t, a.Query("key1"), Result[string]{
+		Value: "val1",
+	})
+
+	// QueryChan
+	assertEqual(t, <-a.QueryChan("key1"), Result[string]{Value: "val1"})
+
+	// QueryResult
+	result, err := a.QueryResult("key1")
+	assertEqual(t, result, "val1")
+	assertEqual(t, err, nil)
+
+	// QueryMulti
+	results := a.QueryMulti([]string{"key1", "key2"})
+	for i, result := range results { // avoid using reflect.DeepEqual with errors
+		switch i {
+		case 0:
+			assertEqual(t, result.Value, "val1")
+		case 1:
+			assertEqual(t, result.Value, "val2")
+		}
+	}
 }
 
 func TestAggregatorAsync(t *testing.T) {
@@ -107,7 +131,7 @@ func TestAggregatorWorker(t *testing.T) {
 			})
 		})
 	} else {
-		t.Log("not enough procs test 2 workers")
+		t.Log("not enough procs to test 2 workers")
 	}
 
 	if canTestConcurrent(4) {
@@ -123,7 +147,7 @@ func TestAggregatorWorker(t *testing.T) {
 			})
 		})
 	} else {
-		t.Log("not enough procs test 4 workers")
+		t.Log("not enough procs to test 4 workers")
 	}
 }
 
