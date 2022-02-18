@@ -13,7 +13,7 @@ func TestAggregatorList(t *testing.T) {
 				"key2": "val2",
 				"key3": "val3",
 			}, nil
-		}, 10*time.Millisecond, 10),
+		}, 10*time.Millisecond, 10, 1),
 		NewAggregator(func(k []string, a ...any) (map[string]string, error) {
 			return map[string]string{
 				"key1": "val1",
@@ -21,15 +21,14 @@ func TestAggregatorList(t *testing.T) {
 				"key3": "val3",
 				"key4": "val4",
 			}, nil
-		}, 100*time.Millisecond, 10),
+		}, 100*time.Millisecond, 10, 1),
 		NewAggregator(func(k []string, a ...any) (map[string]string, error) {
 			return map[string]string{
 				"key4": "val4",
 				"key5": "val5",
 			}, nil
-		}, 100*time.Millisecond, 10),
+		}, 100*time.Millisecond, 10, 1),
 	)
-	aggrList.Run()
 
 	assertEqual(t, aggrList.QueryValue("key1"), "val1")
 	assertEqual(t, aggrList.QueryValue("key2"), "val2")
