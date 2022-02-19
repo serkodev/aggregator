@@ -32,7 +32,7 @@ func TestAggregatorSync(t *testing.T) {
 	// test sync query
 	assertEqual(t, a.QueryValue("key1"), "val1")
 	assertEqual(t, a.QueryValue("key2"), "val2")
-	assertEqual(t, a.Query("key3").Error, ErrNoResult)
+	assertEqual(t, a.Query("key3").Error == ErrNoResult, true)
 
 	// insert data
 	db.Store("key3", "val3")
@@ -49,7 +49,7 @@ func TestAggregatorSync(t *testing.T) {
 	// QueryResult
 	result, err := a.QueryResult("key1")
 	assertEqual(t, result, "val1")
-	assertEqual(t, err, nil)
+	assertEqual(t, err == nil, true)
 
 	// QueryMulti
 	results := a.QueryMulti([]string{"key1", "key2"})
