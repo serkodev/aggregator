@@ -6,7 +6,7 @@ import (
 
 type AggregatorList[K comparable, T any] []*Aggregator[K, T]
 
-func NewAggregatorList[K comparable, T any](aggregators ...*Aggregator[K, T]) AggregatorList[K, T] {
+func NewList[K comparable, T any](aggregators ...*Aggregator[K, T]) AggregatorList[K, T] {
 	return aggregators
 }
 

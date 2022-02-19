@@ -16,18 +16,18 @@ func assertEqual[T comparable](t *testing.T, a T, b T) {
 	}
 }
 
-func assertExpectedDuration(t *testing.T, duration time.Duration, expectDuration time.Duration) {
+func assertDuration(t *testing.T, duration time.Duration, want time.Duration) {
 	tolerance := 10 * time.Millisecond
-	if diff := duration - expectDuration; diff < 0 || diff > tolerance {
-		t.Error("unexpected running duration (ms):", duration.Milliseconds(), "expected:", expectDuration.Milliseconds())
+	if diff := duration - want; diff < 0 || diff > tolerance {
+		t.Error("assert duration:", duration.Milliseconds(), "want:", want.Milliseconds())
 	}
 }
 
-func TestAggregatorSync(t *testing.T) {
+func TestSync(t *testing.T) {
 	t.Parallel()
 
-	db, progress := simpleProgress(0, 2)
-	a := NewAggregator(progress, 10*time.Second, 1).Run()
+	db, fn := setupTestData(0, 2)
+	a, _ := New(fn, 10*time.Second, 1).Run()
 
 	// test sync query
 	assertEqual(t, a.QueryValue("key1"), "val1")
@@ -63,15 +63,15 @@ func TestAggregatorSync(t *testing.T) {
 	}
 }
 
-func TestAggregatorAsync(t *testing.T) {
+func TestAsync(t *testing.T) {
 	t.Parallel()
 
 	max := 3
-	_, progress := simpleProgress(0, max)
-	a := NewAggregator(func(ids []string) (map[string]string, error) {
+	_, fn := setupTestData(0, max)
+	a, _ := New(func(ids []string) (map[string]string, error) {
 		sort.Strings(ids)
 		assertEqual(t, reflect.DeepEqual(ids, []string{"key1", "key2", "key3"}), true)
-		return progress(ids)
+		return fn(ids)
 	}, 100*time.Millisecond, 100).Run()
 
 	var w sync.WaitGroup
@@ -85,11 +85,11 @@ func TestAggregatorAsync(t *testing.T) {
 	w.Wait()
 }
 
-func TestAggregatorWorker(t *testing.T) {
+func TestWorker(t *testing.T) {
 	processTime := 90 * time.Millisecond
 	delayTime := 33 * time.Millisecond
 
-	runTest := func(t *testing.T, a *Aggregator[string, string], expectDurations map[string]time.Duration) {
+	runTest := func(t *testing.T, a *Aggregator[string, string], wants map[string]time.Duration) {
 		var w sync.WaitGroup
 		w.Add(4)
 		now := time.Now()
@@ -98,22 +98,20 @@ func TestAggregatorWorker(t *testing.T) {
 				defer w.Done()
 				key := fmt.Sprintf("key%d", idx)
 				assertEqual(t, a.QueryValue(key), fmt.Sprintf("val%d", idx))
-
-				expectDuration := expectDurations[key]
-				assertExpectedDuration(t, time.Since(now), expectDuration)
+				assertDuration(t, time.Since(now), wants[key])
 			}(i)
 			time.Sleep(delayTime)
 		}
 		w.Wait()
 	}
 
-	_, progress := simpleProgress(processTime, 4)
+	_, fn := setupTestData(processTime, 4)
 
 	assertEqual(t, canTestConcurrent(1), true)
 	t.Run("1 worker", func(t *testing.T) {
 		t.Parallel()
 
-		a := NewAggregator(progress, 10*time.Second, 1).Run()
+		a, _ := New(fn, 10*time.Second, 1).Run()
 		runTest(t, a, map[string]time.Duration{
 			"key1": processTime,
 			"key2": processTime * 2,
@@ -126,8 +124,7 @@ func TestAggregatorWorker(t *testing.T) {
 		t.Run("2 workers", func(t *testing.T) {
 			t.Parallel()
 
-			a := NewAggregator(progress, 10*time.Second, 1).Workers(2)
-			a.Run()
+			a, _ := New(fn, 10*time.Second, 1).RunWithWorkers(2)
 			runTest(t, a, map[string]time.Duration{
 				"key1": processTime,
 				"key2": processTime + delayTime,
@@ -143,8 +140,7 @@ func TestAggregatorWorker(t *testing.T) {
 		t.Run("4 workers", func(t *testing.T) {
 			t.Parallel()
 
-			a := NewAggregator(progress, 10*time.Second, 1).Workers(4)
-			a.Run()
+			a, _ := New(fn, 10*time.Second, 1).RunWithWorkers(4)
 			runTest(t, a, map[string]time.Duration{
 				"key1": processTime,
 				"key2": processTime + delayTime,
@@ -157,12 +153,12 @@ func TestAggregatorWorker(t *testing.T) {
 	}
 }
 
-func TestAggregatorUnlimitWait(t *testing.T) {
+func TestUnlimitWait(t *testing.T) {
 	t.Run("wait forever, never reach max query", func(t *testing.T) {
 		t.Parallel()
 		max := 2
-		_, progress := simpleProgress(0, max)
-		a := NewAggregator(progress, -1, 3).Run()
+		_, fn := setupTestData(0, max)
+		a, _ := New(fn, -1, 3).Run()
 		var w sync.WaitGroup
 		w.Add(max)
 		for i := 1; i <= max; i++ {
@@ -182,8 +178,8 @@ func TestAggregatorUnlimitWait(t *testing.T) {
 	t.Run("wait forever, reach max query", func(t *testing.T) {
 		t.Parallel()
 		max := 2
-		_, progress := simpleProgress(0, max)
-		a := NewAggregator(progress, -1, 2).Run()
+		_, fn := setupTestData(0, max)
+		a, _ := New(fn, -1, 2).Run()
 		var w sync.WaitGroup
 		w.Add(max)
 		for i := 1; i <= max; i++ {
@@ -202,13 +198,13 @@ func TestAggregatorUnlimitWait(t *testing.T) {
 	})
 }
 
-func TestAggregatorUnlimitMax(t *testing.T) {
+func TestUnlimitMax(t *testing.T) {
 	t.Parallel()
 
 	max := 10
 	flushTimeout := 500 * time.Millisecond
-	_, progress := simpleProgress(0, max)
-	a := NewAggregator(progress, flushTimeout, 0).Run()
+	_, fn := setupTestData(0, max)
+	a, _ := New(fn, flushTimeout, 0).Run()
 
 	var w sync.WaitGroup
 	w.Add(max)
@@ -217,7 +213,7 @@ func TestAggregatorUnlimitMax(t *testing.T) {
 		go func(idx int) {
 			defer w.Done()
 			assertEqual(t, a.QueryValue(fmt.Sprintf("key%d", idx)), fmt.Sprintf("val%d", idx))
-			assertExpectedDuration(t, time.Since(now), flushTimeout)
+			assertDuration(t, time.Since(now), flushTimeout)
 		}(i)
 	}
 	w.Wait()
@@ -227,15 +223,15 @@ func canTestConcurrent(concurrent int) bool {
 	return runtime.GOMAXPROCS(0) >= concurrent && runtime.NumCPU() >= concurrent
 }
 
-func simpleProgress(fakeDuration time.Duration, dbItemsCount int) (sync.Map, func(ids []string) (map[string]string, error)) {
+func setupTestData(fakeDuration time.Duration, dbItemsCount int) (sync.Map, func(ids []string) (map[string]string, error)) {
 	// generate sample db
 	var db sync.Map
 	for i := 1; i <= dbItemsCount; i++ {
 		db.Store(fmt.Sprintf("key%d", i), fmt.Sprintf("val%d", i))
 	}
 
-	// generate progress
-	progress := func(ids []string) (map[string]string, error) {
+	// generate fn
+	fn := func(ids []string) (map[string]string, error) {
 		if fakeDuration > 0 {
 			time.Sleep(fakeDuration)
 		}
@@ -247,6 +243,5 @@ func simpleProgress(fakeDuration time.Duration, dbItemsCount int) (sync.Map, fun
 		}
 		return out, nil
 	}
-
-	return db, progress
+	return db, fn
 }

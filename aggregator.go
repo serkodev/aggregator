@@ -1,6 +1,7 @@
 package aggregator
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -8,143 +9,135 @@ import (
 	"time"
 )
 
-type Aggregator[K comparable, T any] struct {
-	FlushTimeout  time.Duration
-	FlushMaxQuery int
-
-	processor  func([]K) (map[K]T, error)
-	workers    int
-	flushChan  chan map[K][]chan Result[T]
-	notifyChan chan notifyObject[K, T]
-	debugPrint func(format string, v ...interface{})
-	runOnce    sync.Once
-}
-
-type notifyObject[K comparable, T any] struct {
+type task[K comparable, T any] struct {
 	key K
 	ch  chan Result[T]
+}
+
+type Aggregator[K comparable, T any] struct {
+	MaxWait time.Duration
+	MaxSize int
+
+	fn     func([]K) (map[K]T, error)
+	ch     chan task[K, T]
+	once   sync.Once
+	debugf func(format string, v ...interface{})
 }
 
 var NeverFlushTimeout time.Duration = -1
 
 // flushMaxQuery: 0 unlimit
 // flushTimeout: only wait max query once if < 0
-func NewAggregator[K comparable, T any](processor func([]K) (map[K]T, error), flushTimeout time.Duration, flushMaxQuery int) *Aggregator[K, T] {
+func New[K comparable, T any](fn func([]K) (map[K]T, error), flushMaxWait time.Duration, flushMaxSize int) *Aggregator[K, T] {
 	a := &Aggregator[K, T]{
-		FlushTimeout:  flushTimeout,
-		FlushMaxQuery: flushMaxQuery,
-
-		processor:  processor,
-		workers:    1,
-		notifyChan: make(chan notifyObject[K, T]),
-		debugPrint: func(format string, v ...interface{}) {},
+		MaxWait: flushMaxWait,
+		MaxSize: flushMaxSize,
+		fn:      fn,
+		ch:      make(chan task[K, T]),
+		debugf:  func(format string, v ...interface{}) {},
 	}
 	return a
 }
 
-func (a *Aggregator[K, T]) Debug(debug bool) *Aggregator[K, T] {
-	if debug {
-		a.debugPrint = log.New(os.Stdout, fmt.Sprintf("[aggregator]"), 0).Printf
-	} else {
-		a.debugPrint = func(format string, v ...interface{}) {}
+func (a *Aggregator[K, T]) Debug() *Aggregator[K, T] {
+	a.debugf = log.New(os.Stdout, fmt.Sprintf("[aggregator]"), 0).Printf
+	return a
+}
+
+func (a *Aggregator[K, T]) Run() (*Aggregator[K, T], error) {
+	return a.RunWithWorkers(1)
+}
+
+func (a *Aggregator[K, T]) RunWithWorkers(workers int) (*Aggregator[K, T], error) {
+	if a.fn == nil {
+		return a, errors.New("nil aggregator fn")
 	}
-	return a
-}
-
-func (a *Aggregator[K, T]) Workers(workers int) *Aggregator[K, T] {
-	a.workers = workers
-	return a
-}
-
-func (a *Aggregator[K, T]) Run() *Aggregator[K, T] {
-	a.runOnce.Do(func() {
-		go a.run()
+	a.once.Do(func() {
+		go a.run(workers)
 	})
-	return a
+	return a, nil
 }
 
-func (a *Aggregator[K, T]) run() {
+func (a *Aggregator[K, T]) run(workers int) {
 	// workers
-	if a.workers < 1 {
-		a.workers = 1
+	if workers < 1 {
+		workers = 1
 	}
-	a.flushChan = make(chan map[K][]chan Result[T], a.workers)
-	for i := 0; i < a.workers; i++ {
-		go a.flushWorker(a.flushChan)
+	flushChan := make(chan map[K][]chan Result[T], workers)
+	for i := 0; i < workers; i++ {
+		go a.runWorker(flushChan)
 	}
 
 	// flush timer
-	t := time.NewTimer(a.FlushTimeout)
+	timer := time.NewTimer(a.MaxWait)
 	for {
-		// wait first notification
-		data := <-a.notifyChan
-		a.debugPrint("[query] key start: %s", data.key)
-		fetchList := map[K][]chan Result[T]{
-			data.key: {data.ch},
+		// wait task to start
+		task := <-a.ch
+		a.debugf("[query] key start: %s", task.key)
+		tasks := map[K][]chan Result[T]{
+			task.key: {task.ch},
 		}
 
-		// clear timer
-		if !t.Stop() && len(t.C) > 0 {
-			<-t.C
+		// stop timer
+		if !timer.Stop() && len(timer.C) > 0 {
+			<-timer.C
 		}
 
-		if a.FlushMaxQuery != 1 {
-			if a.FlushTimeout != NeverFlushTimeout {
-				t.Reset(a.FlushTimeout)
+		if a.MaxSize != 1 {
+			if a.MaxWait != NeverFlushTimeout {
+				// reset timer to count down
+				timer.Reset(a.MaxWait)
 			}
-
-			// wait other notification
 		wait:
 			for {
 				select {
-				case data := <-a.notifyChan:
-					a.debugPrint("[query] key: %s", data.key)
-					fetchList[data.key] = append(fetchList[data.key], data.ch)
-					if a.FlushMaxQuery > 0 && len(fetchList) >= a.FlushMaxQuery {
-						a.debugPrint("[flush] max query reached")
+				case task := <-a.ch:
+					a.debugf("[query] key: %s", task.key)
+					tasks[task.key] = append(tasks[task.key], task.ch)
+					if a.MaxSize > 0 && len(tasks) >= a.MaxSize {
+						a.debugf("[flush] max query reached")
 						break wait
 					}
-				case <-t.C:
-					a.debugPrint("[flush] timeout")
+				case <-timer.C:
+					a.debugf("[flush] timeout")
 					break wait
 				}
 			}
 		}
 
-		a.flushChan <- fetchList
+		// flush
+		flushChan <- tasks
 	}
 }
 
-func (a *Aggregator[K, T]) flushWorker(fetchChan <-chan map[K][]chan Result[T]) {
-	for fetchList := range fetchChan {
-		keys := make([]K, len(fetchList))
-		i := 0
-		for k := range fetchList {
-			keys[i] = k
-			i++
+func (a *Aggregator[K, T]) runWorker(flushChan <-chan map[K][]chan Result[T]) {
+	for tasks := range flushChan {
+		keys := make([]K, 0, len(tasks))
+		for k := range tasks {
+			keys = append(keys, k)
 		}
 
-		// execute processor
-		results, err := a.processor(keys)
+		// execute
+		results, err := a.fn(keys)
 
 		// return results
-		for i, queue := range fetchList {
+		for key, chans := range tasks {
 			var result Result[T]
 
 			if err != nil {
 				result.Error = err
-			} else if r, ok := results[i]; ok {
+			} else if r, ok := results[key]; ok {
 				result.Value = r
 			} else {
 				result.Error = NoResult
 			}
 
-			// send result
-			for _, c := range queue {
-				go func(c chan Result[T]) {
-					c <- result
-					close(c)
-				}(c)
+			// send result to each task ch
+			for _, ch := range chans {
+				go func(ch chan Result[T]) {
+					ch <- result
+					close(ch)
+				}(ch)
 			}
 		}
 	}
@@ -152,7 +145,7 @@ func (a *Aggregator[K, T]) flushWorker(fetchChan <-chan map[K][]chan Result[T]) 
 
 func (a *Aggregator[K, T]) QueryChan(key K) <-chan Result[T] {
 	ch := make(chan Result[T], 1)
-	a.notifyChan <- notifyObject[K, T]{
+	a.ch <- task[K, T]{
 		key: key,
 		ch:  ch,
 	}
