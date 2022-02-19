@@ -1,8 +1,8 @@
 package aggregator
 
-import "fmt"
+import "errors"
 
-var ErrNoResult = fmt.Errorf("no result")
+var NoResult = errors.New("No result")
 
 type Result[T any] struct {
 	Value T
@@ -13,8 +13,12 @@ func (r Result[T]) Get() (T, error) {
 	return r.Value, r.Error
 }
 
-func ResultEmpty[T any]() Result[T] {
-	var r Result[T]
-	r.Error = ErrNoResult
-	return r
+func (r Result[T]) IsNoResult() bool {
+	return r.Error == NoResult
+}
+
+func newNoResult[T any]() Result[T] {
+	return Result[T]{
+		Error: NoResult,
+	}
 }

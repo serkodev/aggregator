@@ -136,7 +136,7 @@ func (a *Aggregator[K, T]) flushWorker(fetchChan <-chan map[K][]chan Result[T]) 
 			} else if r, ok := results[i]; ok {
 				result.Value = r
 			} else {
-				result.Error = ErrNoResult
+				result.Error = NoResult
 			}
 
 			// send result

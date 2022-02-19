@@ -28,7 +28,7 @@ func (aggregators AggregatorList[K, T]) Query(key K) Result[T] {
 		}
 		return result
 	}
-	return ResultEmpty[T]()
+	return newNoResult[T]()
 }
 
 func (aggregators AggregatorList[K, T]) QueryResult(key K) (T, error) {

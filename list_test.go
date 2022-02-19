@@ -35,5 +35,5 @@ func TestAggregatorList(t *testing.T) {
 	assertEqual(t, aggrList.QueryValue("key3"), "val3")
 	assertEqual(t, aggrList.QueryValue("key4"), "val4")
 	assertEqual(t, aggrList.QueryValue("key5"), "val5")
-	assertEqual(t, aggrList.Query("key6").Error == ErrNoResult, true)
+	assertEqual(t, aggrList.Query("key6").Error == NoResult, true)
 }
