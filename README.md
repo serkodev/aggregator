@@ -1,6 +1,10 @@
 # Aggregator
 
-Aggregator is a batch processing library for Go. You can process and group up batch of tasks with keys in a single callback. Using it for grouping up database query or cache can help you to reduce loading of database and network.
+Aggregator is a batch processing library for Go supports returning values. You can group up and process batch of tasks with keys in a single callback. Using it for grouping up database query or cache can help you to reduce loading of database and network.
+
+### THIS PROJECT IS IN BETA
+
+This project may contain bugs and have not being tested at all. Use under your own risk, but feel free to test, make pull request and improve this project.
 
 ## Features
 
@@ -8,11 +12,15 @@ Aggregator is a batch processing library for Go. You can process and group up ba
 - Support multi workers to flush tasks.
 - Support Go generics for query keys and result values.
 - Support timeout-only or tasks limit-only.
-- Support singleflight (using [serkodev/singleflight-any](https://github.com/serkodev/singleflight-any)).
+- Support singleflight (using [singleflight-any](https://github.com/serkodev/singleflight-any)).
 
-## Requirement
+## Install
 
-Currently only Go 1.18 or above (with go generics), backward compatible is planned.
+Currently Go 1.18+ is required (for go generics), backward compatible is planned.
+
+```bash
+go get github.com/serkodev/aggregator@latest
+```
 
 ## Example
 
@@ -32,7 +40,7 @@ for _, name := range []string{"foo", "foo", "bar", "baz", "baz"} {
     }(name)
 }
 
-// foo:10 foo:10 bar:25 baz:30 baz:30 
+// foo:10 foo:10 bar:25 baz:30 baz:30
 ```
 
 ## How it works
@@ -79,7 +87,50 @@ flowchart LR;
     classDef bgBaz fill:purple;
 ```
 
+## Advance
+
+### AggregatorList
+
+`AggregatorList` contains a slice of `Aggregator`, you can create it by `aggregator.NewList(...)`. If the prior order aggregator cannot return data for any keys. Then `AggregatorList` will query data from the next aggregator for fallback.
+
+For example, you create an `AggregatorList` with cache and database aggregator, when the data has not been cached, it will auto query from database.
+
+```go
+cacheAgg := aggregator.New(func(k []string) (map[string]string, error) {
+    fmt.Println("fetch from cache...", k)
+    return map[string]string{
+        "key1": "val1",
+        "key2": "val2",
+    }, nil
+}, 50*time.Millisecond, 10)
+
+databaseAgg := aggregator.New(func(k []string) (map[string]string, error) {
+    fmt.Println("fetch from database...", k)
+    return map[string]string{
+        "key1": "val1",
+        "key2": "val2",
+        "key3": "val3",
+        "key4": "val4",
+    }, nil
+}, 50*time.Millisecond, 10)
+
+list := aggregator.NewList(cacheAgg, databaseAgg).Run()
+results := list.QueryMulti([]string{"key1", "key2", "key3", "key4"})
+
+// fetch from cache... ["key1", "key2", "key3", "key4"]
+// fetch from database... ["key3", "key4"]
+// results: ["val1", "val2", "val3", "val4"]
+```
+
+### singleflight
+
+In some use case you may need to prevent cache breakdown. Aggregator works with singleflight by using [singleflight-any](https://github.com/serkodev/singleflight-any) (supports Go generics).
+
 ## Inspiration
 
 - [API Performance Tunning Story when Goalng meet with GraphQL](https://hackmd.io/zvmgdunRR8mjAjVIMx0eDA?both) - Kane Wang
-- [herryg91/gobatch](https://github.com/herryg91/gobatch)
+- [gobatch](https://github.com/herryg91/gobatch)
+
+## LICENSE
+
+MIT License
