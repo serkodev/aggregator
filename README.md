@@ -1,5 +1,7 @@
 # Aggregator
 
+[![Go Reference](https://pkg.go.dev/badge/github.com/serkodev/aggregator.svg)](https://pkg.go.dev/github.com/serkodev/aggregator)
+
 Aggregator is a batch processing library for Go supports returning values. You can group up and process batch of tasks with keys in a single callback. Using it for grouping up database query or cache can help you to reduce loading of database and network.
 
 ### THIS PROJECT IS IN BETA
