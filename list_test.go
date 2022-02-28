@@ -36,4 +36,15 @@ func TestList(t *testing.T) {
 	assertEqual(t, aggrList.QueryValue("key4"), "val4")
 	assertEqual(t, aggrList.QueryValue("key5"), "val5")
 	assertEqual(t, aggrList.Query("key6").Error == NoResult, true)
+
+	// QueryMulti
+	results := aggrList.QueryMulti([]string{"key1", "key2"})
+	for i, result := range results { // avoid using reflect.DeepEqual with errors
+		switch i {
+		case 0:
+			assertEqual(t, result.Value, "val1")
+		case 1:
+			assertEqual(t, result.Value, "val2")
+		}
+	}
 }
