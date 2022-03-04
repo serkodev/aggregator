@@ -91,29 +91,42 @@ func (a *Aggregator[K, T]) run(workers int) {
 			task.key: {task.ch},
 		}
 
-		// stop timer
-		if !timer.Stop() && len(timer.C) > 0 {
-			<-timer.C
+		// stop timer, see: https://github.com/golang/go/issues/27169
+		if !timer.Stop() {
+			select {
+			case <-timer.C: // drain from channel
+			default:
+			}
 		}
 
 		if a.MaxSize != 1 {
 			if a.MaxWait != NeverFlushTimeout {
 				// reset timer to count down
 				timer.Reset(a.MaxWait)
-			}
-		wait:
-			for {
-				select {
-				case task := <-a.ch:
+
+			wait:
+				for {
+					select {
+					case task := <-a.ch:
+						a.debugf("[query] key: %s", task.key)
+						tasks[task.key] = append(tasks[task.key], task.ch)
+						if a.MaxSize > 0 && len(tasks) >= a.MaxSize {
+							a.debugf("[flush] max query reached")
+							break wait
+						}
+					case <-timer.C:
+						a.debugf("[flush] timeout")
+						break wait
+					}
+				}
+			} else {
+				for task := range a.ch {
 					a.debugf("[query] key: %s", task.key)
 					tasks[task.key] = append(tasks[task.key], task.ch)
 					if a.MaxSize > 0 && len(tasks) >= a.MaxSize {
 						a.debugf("[flush] max query reached")
-						break wait
+						break
 					}
-				case <-timer.C:
-					a.debugf("[flush] timeout")
-					break wait
 				}
 			}
 		}
