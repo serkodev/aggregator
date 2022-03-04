@@ -158,7 +158,7 @@ func TestUnlimitWait(t *testing.T) {
 		t.Parallel()
 		max := 2
 		_, fn := setupTestData(0, max)
-		a, _ := New(fn, -1, 3).Run()
+		a, _ := New(fn, NeverFlushTimeout, 3).Run()
 		var w sync.WaitGroup
 		w.Add(max)
 		for i := 1; i <= max; i++ {
@@ -179,7 +179,7 @@ func TestUnlimitWait(t *testing.T) {
 		t.Parallel()
 		max := 2
 		_, fn := setupTestData(0, max)
-		a, _ := New(fn, -1, 2).Run()
+		a, _ := New(fn, NeverFlushTimeout, 2).Run()
 		var w sync.WaitGroup
 		w.Add(max)
 		for i := 1; i <= max; i++ {
