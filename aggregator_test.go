@@ -39,12 +39,10 @@ func TestSync(t *testing.T) {
 	assertEqual(t, a.QueryValue("key3"), "val3")
 
 	// Query
-	assertEqual(t, a.Query("key1"), Result[string]{
-		Value: "val1",
-	})
+	assertEqual(t, a.Query("key1") == Result[string]{Value: "val1"}, true)
 
 	// QueryChan
-	assertEqual(t, <-a.QueryChan("key1"), Result[string]{Value: "val1"})
+	assertEqual(t, <-a.QueryChan("key1") == Result[string]{Value: "val1"}, true)
 
 	// QueryResult
 	result, err := a.QueryResult("key1")
